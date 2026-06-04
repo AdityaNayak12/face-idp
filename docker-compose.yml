@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  app:
+    # The FastAPI backend application
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - zepiris
+
+  db:
+    # PostgreSQL database service (version 15)
+    image: postgres:15
+    environment:
+      POSTGRES_DB: face_idp
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+
+  zepiris:
+    # Placeholder service for ZepIris facial authentication system.
+    # NOTE: The image name/build context will be filled in after pulling from the ZepIris repository.
+    image: zepiris-placeholder:latest
+    ports:
+      - "8080:8080"

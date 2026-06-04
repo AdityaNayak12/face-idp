@@ -1,0 +1,24 @@
+# .gitignore: Specifies intentionally untracked files and folders that Git should ignore.
+
+# Python compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python virtual environment
+.venv/
+venv/
+ENV/
+
+# Environment files with credentials
+.env
+
+# OS specific files
+.DS_Store
+
+# Project IDE configurations
+.vscode/
+.idea/
+
+# Antigravity CLI internal directory
+.antigravitycli/
