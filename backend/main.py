@@ -4,6 +4,7 @@ import os
 import psycopg2
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from .routes import enroll, verify, logs
@@ -86,6 +87,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5174", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "Origin"],
+)
+
 # Register routes
 app.include_router(enroll.router, tags=["Enrollment"])
 app.include_router(verify.router, tags=["Verification"])
@@ -94,3 +103,4 @@ app.include_router(logs.router, tags=["Audit Logs"])
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+

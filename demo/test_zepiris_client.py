@@ -5,6 +5,8 @@ import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
+import httpx
+
 # Ensure project root directory is in import path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -77,6 +79,33 @@ class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
         # Verify
         self.assertFalse(result["verified"])
         self.assertEqual(result["confidence"], 0.45)
+
+    @patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused"))
+    @patch("psycopg2.connect")
+    async def test_verify_face_mock_fallback_success(self, mock_db_connect, mock_post):
+        # Mock database connection and query to return success
+        mock_conn = mock_db_connect.return_value
+        mock_cur = mock_conn.cursor.return_value
+        mock_cur.fetchone.return_value = (1,)
+
+        # Execute with a sufficiently long image base64 (e.g. 100+ chars) to not trigger the short image check
+        long_image = "a" * 120
+        with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080", "MOCK_ZEPIRIS": "true"}):
+            zepiris_client.ZEPIRIS_URL = "http://mock-zepiris:8080"
+            result = await zepiris_client.verify_face("test-worker-001", long_image, "123")
+
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["confidence"], 0.95)
+
+    @patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused"))
+    async def test_verify_face_mock_fallback_fail_keyword(self, mock_post):
+        # Execute with "fail" in worker_id
+        with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080", "MOCK_ZEPIRIS": "true"}):
+            zepiris_client.ZEPIRIS_URL = "http://mock-zepiris:8080"
+            result = await zepiris_client.verify_face("test-worker-fail", "a" * 120, "123")
+
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["confidence"], 0.15)
 
 if __name__ == "__main__":
     unittest.main()
