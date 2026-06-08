@@ -98,7 +98,13 @@ class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["confidence"], 0.95)
 
     @patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused"))
-    async def test_verify_face_mock_fallback_fail_keyword(self, mock_post):
+    @patch("psycopg2.connect")
+    async def test_verify_face_mock_fallback_fail_keyword(self, mock_db_connect, mock_post):
+        # Mock connection and cursor context managers
+        mock_conn = mock_db_connect.return_value.__enter__.return_value
+        mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+        mock_cur.fetchone.return_value = (1,)
+
         # Execute with "fail" in worker_id
         with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080", "MOCK_ZEPIRIS": "true"}):
             zepiris_client.ZEPIRIS_URL = "http://mock-zepiris:8080"
@@ -106,6 +112,28 @@ class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result["verified"])
         self.assertEqual(result["confidence"], 0.15)
+
+    @patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused"))
+    @patch("psycopg2.connect")
+    async def test_verify_face_mock_fallback_success_cleaned_fail(self, mock_db_connect, mock_post):
+        # Mock connection and cursor context managers
+        mock_conn = mock_db_connect.return_value.__enter__.return_value
+        mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+        mock_cur.fetchone.return_value = (1,)
+
+        long_image = "a" * 120
+        with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080", "MOCK_ZEPIRIS": "true"}):
+            zepiris_client.ZEPIRIS_URL = "http://mock-zepiris:8080"
+            result = await zepiris_client.verify_face("test-worker-001-fail", long_image, "123")
+
+        # The query should be for "test-worker-001", but the result should be False
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["confidence"], 0.15)
+        # Ensure database query checked the clean ID "test-worker-001"
+        mock_cur.execute.assert_called_with(
+            "SELECT 1 FROM workers WHERE worker_id = %s AND org_id = %s;",
+            ("test-worker-001", 123)
+        )
 
 if __name__ == "__main__":
     unittest.main()

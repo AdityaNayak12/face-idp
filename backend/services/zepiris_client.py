@@ -80,16 +80,25 @@ async def verify_face(worker_id: str, image_base64: str, tenant: str) -> dict:
         if os.getenv("MOCK_ZEPIRIS", "true").lower() == "true":
             print(f"WARNING: ZepIris connection failed ({e}). Running mock verification logic.")
             
-            # 1. Check if the worker ID contains failure keywords or if the image base64 is a short mock placeholder
+            # 1. Parse simulation triggers
+            clean_worker_id = worker_id
+            simulate_fail = False
+            
             lower_id = worker_id.lower()
-            if "fail" in lower_id or "wrong" in lower_id or "invalid" in lower_id or len(image_base64) < 100:
-                print(f"MOCK: Simulating verification failure for worker_id='{worker_id}' (matched trigger or mock image).")
+            if "fail" in lower_id or "wrong" in lower_id or "invalid" in lower_id:
+                simulate_fail = True
+                for kw in ["fail", "wrong", "invalid"]:
+                    clean_worker_id = clean_worker_id.replace("-" + kw, "").replace("_" + kw, "").replace(kw, "")
+            
+            # 2. Check if the image base64 is a short mock placeholder
+            if len(image_base64) < 100:
+                print(f"MOCK: Simulating verification failure for worker_id='{worker_id}' (short mock image placeholder).")
                 return {
                     "verified": False,
                     "confidence": 0.15
                 }
                 
-            # 2. Check database to verify the worker is actually enrolled under this tenant/org
+            # 3. Check database to verify the worker is actually enrolled under this tenant/org
             DATABASE_URL = os.getenv("DATABASE_URL")
             try:
                 if DATABASE_URL:
@@ -97,10 +106,16 @@ async def verify_face(worker_id: str, image_base64: str, tenant: str) -> dict:
                         with conn.cursor() as cur:
                             cur.execute(
                                 "SELECT 1 FROM workers WHERE worker_id = %s AND org_id = %s;",
-                                (worker_id, int(tenant))
+                                (clean_worker_id, int(tenant))
                             )
                             if cur.fetchone():
-                                print(f"MOCK: Worker '{worker_id}' found in database. Verification successful.")
+                                if simulate_fail:
+                                    print(f"MOCK: Worker '{clean_worker_id}' found in database, but simulating WRONG FACE mismatch due to suffix/keyword trigger in worker ID '{worker_id}'.")
+                                    return {
+                                        "verified": False,
+                                        "confidence": 0.15
+                                    }
+                                print(f"MOCK: Worker '{clean_worker_id}' found in database. Verification successful.")
                                 return {
                                     "verified": True,
                                     "confidence": 0.95
@@ -108,7 +123,7 @@ async def verify_face(worker_id: str, image_base64: str, tenant: str) -> dict:
             except Exception as db_err:
                 print(f"Mock verification database lookup failed: {db_err}")
                 
-            print(f"MOCK: Worker '{worker_id}' not found in database. Verification failed.")
+            print(f"MOCK: Worker '{clean_worker_id}' not found in database. Verification failed.")
             return {
                 "verified": False,
                 "confidence": 0.0
