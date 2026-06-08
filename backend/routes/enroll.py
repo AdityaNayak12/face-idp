@@ -1,8 +1,8 @@
 import os
 import psycopg2
 from fastapi import APIRouter, HTTPException, status
-from backend.models import EnrollRequest
-from backend.services import auth, zepiris_client
+from ..models import EnrollRequest
+from ..services import auth, zepiris_client
 
 router = APIRouter()
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -19,7 +19,7 @@ async def enroll(request: EnrollRequest):
 
     # Call ZepIris service to enroll the worker's face
     try:
-        await zepiris_client.enroll_face(request.worker_id, request.image_base64)
+        await zepiris_client.enroll_face(request.worker_id, request.image_base64, tenant=str(org.id))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

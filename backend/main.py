@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from dotenv import load_dotenv
 
-from backend.routes import enroll, verify, logs
+from .routes import enroll, verify, logs
 
 load_dotenv()
 

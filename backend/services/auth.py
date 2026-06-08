@@ -2,7 +2,7 @@ import os
 import secrets
 import psycopg2
 from dotenv import load_dotenv
-from backend.models import Org
+from ..models import Org
 
 load_dotenv()
 

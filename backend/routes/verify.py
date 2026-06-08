@@ -3,8 +3,8 @@
 import os
 import psycopg2
 from fastapi import APIRouter, HTTPException, status
-from backend.models import VerifyRequest
-from backend.services import auth, zepiris_client
+from ..models import VerifyRequest
+from ..services import auth, zepiris_client
 
 router = APIRouter()
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -21,7 +21,7 @@ async def verify(request: VerifyRequest):
 
     # Call ZepIris service to verify the worker's face
     try:
-        zepiris_response = await zepiris_client.verify_face(request.worker_id, request.image_base64)
+        zepiris_response = await zepiris_client.verify_face(request.worker_id, request.image_base64, tenant=str(org.id))
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

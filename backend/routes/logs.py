@@ -3,7 +3,7 @@
 import os
 import psycopg2
 from fastapi import APIRouter, HTTPException, status, Query
-from backend.services import auth
+from ..services import auth
 
 router = APIRouter()
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -17,7 +17,7 @@ async def get_logs(api_key: str = Query(..., description="API key of the organiz
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API key."
         )
-
+ 
     if not DATABASE_URL:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
