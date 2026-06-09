@@ -4,8 +4,7 @@ import sys
 import os
 import unittest
 from unittest.mock import AsyncMock, patch
-
-import httpx
+import urllib.error
 
 # Ensure project root directory is in import path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,13 +12,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.services import zepiris_client
 
 class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
-    @patch("httpx.AsyncClient.post")
+    @patch("backend.services.zepiris_client._sync_multipart_post")
     async def test_enroll_face(self, mock_post):
         # Setup mock response
-        mock_response = AsyncMock()
-        mock_response.json = lambda: {"success": True, "id": "test-worker-001"}
-        mock_response.raise_for_status = lambda: None
-        mock_post.return_value = mock_response
+        mock_post.return_value = '{"success": true, "id": "test-worker-001"}'
 
         # Execute
         with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080"}):
@@ -28,25 +24,16 @@ class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
             
         # Verify
         self.assertEqual(result, {"success": True, "id": "test-worker-001"})
-        mock_post.assert_called_once()
-        # Verify form data and multipart file arguments
-        args, kwargs = mock_post.call_args
-        self.assertEqual(args[0], "http://mock-zepiris:8080/v1/faces/insert")
-        self.assertEqual(kwargs["data"], {"id": "test-worker-001", "tenant": "123"})
-        self.assertIn("file", kwargs["files"])
+        mock_post.assert_called_once_with(
+            "http://mock-zepiris:8080/v1/faces/insert",
+            {"id": "test-worker-001", "tenant": "123"},
+            {"file": ("face.jpg", b'\x89PNG\r\n\x1a\n', "image/jpeg")}
+        )
 
-    @patch("httpx.AsyncClient.post")
+    @patch("backend.services.zepiris_client._sync_multipart_post")
     async def test_verify_face_match(self, mock_post):
         # Setup mock response for search returning a match
-        mock_response = AsyncMock()
-        mock_response.json = lambda: {
-            "matches": [
-                {"id": "test-worker-001", "score": 0.95},
-                {"id": "test-worker-002", "score": 0.50}
-            ]
-        }
-        mock_response.raise_for_status = lambda: None
-        mock_post.return_value = mock_response
+        mock_post.return_value = '{"matches": [{"id": "test-worker-001", "score": 0.95}, {"id": "test-worker-002", "score": 0.50}]}'
 
         # Execute
         with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080", "ZEPIRIS_THRESHOLD": "0.6"}):
@@ -57,18 +44,16 @@ class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
         # Verify
         self.assertTrue(result["verified"])
         self.assertEqual(result["confidence"], 0.95)
+        mock_post.assert_called_once_with(
+            "http://mock-zepiris:8080/v1/faces/search",
+            {"tenant": "123"},
+            {"file": ("face.jpg", b'\x89PNG\r\n\x1a\n', "image/jpeg")}
+        )
 
-    @patch("httpx.AsyncClient.post")
+    @patch("backend.services.zepiris_client._sync_multipart_post")
     async def test_verify_face_below_threshold(self, mock_post):
         # Setup mock response for search returning match below threshold
-        mock_response = AsyncMock()
-        mock_response.json = lambda: {
-            "matches": [
-                {"id": "test-worker-001", "score": 0.45}
-            ]
-        }
-        mock_response.raise_for_status = lambda: None
-        mock_post.return_value = mock_response
+        mock_post.return_value = '{"matches": [{"id": "test-worker-001", "score": 0.45}]}'
 
         # Execute
         with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080", "ZEPIRIS_THRESHOLD": "0.6"}):
@@ -80,7 +65,7 @@ class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["verified"])
         self.assertEqual(result["confidence"], 0.45)
 
-    @patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused"))
+    @patch("backend.services.zepiris_client._sync_multipart_post", side_effect=urllib.error.URLError("Connection refused"))
     @patch("psycopg2.connect")
     async def test_verify_face_mock_fallback_success(self, mock_db_connect, mock_post):
         # Mock database connection and query to return success
@@ -97,7 +82,7 @@ class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["verified"])
         self.assertEqual(result["confidence"], 0.95)
 
-    @patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused"))
+    @patch("backend.services.zepiris_client._sync_multipart_post", side_effect=urllib.error.URLError("Connection refused"))
     @patch("psycopg2.connect")
     async def test_verify_face_mock_fallback_fail_keyword(self, mock_db_connect, mock_post):
         # Mock connection and cursor context managers
@@ -113,7 +98,7 @@ class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["verified"])
         self.assertEqual(result["confidence"], 0.15)
 
-    @patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Connection refused"))
+    @patch("backend.services.zepiris_client._sync_multipart_post", side_effect=urllib.error.URLError("Connection refused"))
     @patch("psycopg2.connect")
     async def test_verify_face_mock_fallback_success_cleaned_fail(self, mock_db_connect, mock_post):
         # Mock connection and cursor context managers
