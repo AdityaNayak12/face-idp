@@ -8,6 +8,11 @@ services:
       dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/face_idp
+      - ZEPIRIS_URL=http://zepiris:8080
+      - MASTER_API_KEY=test_master_api_key_1234567890
+      - MOCK_ZEPIRIS=true
     depends_on:
       - db
       - zepiris
@@ -23,8 +28,21 @@ services:
       - "5432:5432"
 
   zepiris:
-    # Placeholder service for ZepIris facial authentication system.
-    # NOTE: The image name/build context will be filled in after pulling from the ZepIris repository.
-    image: zepiris-placeholder:latest
+    # Lightweight inline mock server simulating the ZepIris API
+    image: python:3.10-slim
+    command: >
+      python -c "
+      import http.server, json
+      class Handler(http.server.BaseHTTPRequestHandler):
+          def do_POST(self):
+              self.send_response(200)
+              self.send_header('Content-Type', 'application/json')
+              self.end_headers()
+              if 'insert' in self.path:
+                  self.wfile.write(b'{\"success\":true,\"id\":\"mock-worker\"}')
+              else:
+                  self.wfile.write(b'{\"matches\":[{\"id\":\"test-worker-001\",\"score\":0.95}]}')
+      http.server.HTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
+      "
     ports:
       - "8080:8080"
