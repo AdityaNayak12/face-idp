@@ -137,9 +137,6 @@ export default function Verify({ apiKey }) {
                 onChange={(e) => setWorkerId(e.target.value)}
                 className="text-input"
               />
-              <p className="help-text" style={{ fontSize: '0.8rem', color: '#666', marginTop: '6px', lineHeight: '1.4' }}>
-                💡 <strong>Tip for mock mode:</strong> Append <code>-fail</code> or <code>-wrong</code> to the Worker ID (e.g. <code>test-worker-001-fail</code>) to simulate a biometric mismatch (wrong face) for an enrolled worker.
-              </p>
             </div>
 
             <div className="camera-section">
