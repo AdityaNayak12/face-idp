@@ -1,7 +1,7 @@
 # backend/routes/verify.py: API routes for worker face verification.
 
 import os
-import psycopg2
+from ..db import get_db_connection
 from fastapi import APIRouter, HTTPException, status
 from ..models import VerifyRequest
 from ..services import auth, zepiris_client
@@ -39,7 +39,7 @@ async def verify(request: VerifyRequest):
         )
 
     try:
-        with psycopg2.connect(DATABASE_URL) as conn:
+        with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO verification_logs (org_id, worker_id, confidence, verified) VALUES (%s, %s, %s, %s);",

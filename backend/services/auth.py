@@ -1,6 +1,6 @@
 import os
 import secrets
-import psycopg2
+from backend.db import get_db_connection
 from dotenv import load_dotenv
 from ..models import Org
 
@@ -18,7 +18,7 @@ def validate_api_key(api_key: str) -> Org | None:
         raise ValueError("DATABASE_URL is not set in the environment variables.")
     
     try:
-        with psycopg2.connect(DATABASE_URL) as conn:
+        with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT id, name, email, api_key, created_at FROM orgs WHERE api_key = %s;",

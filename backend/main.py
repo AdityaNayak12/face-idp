@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from .routes import enroll, verify, logs
+from .db import init_pool, close_pool, get_db_connection
 
 load_dotenv()
 
@@ -52,7 +53,7 @@ def init_db():
     ]
 
     try:
-        with psycopg2.connect(DATABASE_URL) as conn:
+        with get_db_connection() as conn:
             with conn.cursor() as cur:
                 # Create the tables
                 for query in create_tables_queries:
@@ -76,9 +77,11 @@ def init_db():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup actions
+    init_pool()
     init_db()
     yield
-    # Shutdown actions (if any)
+    # Shutdown actions
+    close_pool()
 
 app = FastAPI(
     title="face-idp API",
@@ -89,13 +92,19 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174", "http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:5176",
+        "http://localhost:5177"
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "Accept", "Origin"],
 )
 
-# Register routes
+1# Register routes
 app.include_router(enroll.router, tags=["Enrollment"])
 app.include_router(verify.router, tags=["Verification"])
 app.include_router(logs.router, tags=["Audit Logs"])

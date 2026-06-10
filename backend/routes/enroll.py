@@ -1,8 +1,9 @@
 import os
-import psycopg2
+from ..db import get_db_connection
 from fastapi import APIRouter, HTTPException, status
 from ..models import EnrollRequest
 from ..services import auth, zepiris_client
+import psycopg2
 
 router = APIRouter()
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -34,7 +35,7 @@ async def enroll(request: EnrollRequest):
         )
 
     try:
-        with psycopg2.connect(DATABASE_URL) as conn:
+        with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO workers (worker_id, org_id) VALUES (%s, %s);",

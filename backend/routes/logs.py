@@ -1,7 +1,7 @@
 # backend/routes/logs.py: API routes for retrieving audit and verification logs.
 
 import os
-import psycopg2
+from ..db import get_db_connection
 from fastapi import APIRouter, HTTPException, status, Query
 from ..services import auth
 
@@ -25,7 +25,7 @@ async def get_logs(api_key: str = Query(..., description="API key of the organiz
         )
 
     try:
-        with psycopg2.connect(DATABASE_URL) as conn:
+        with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
