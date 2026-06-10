@@ -66,59 +66,20 @@ class TestZepirisClient(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["confidence"], 0.45)
 
     @patch("backend.services.zepiris_client._sync_multipart_post", side_effect=urllib.error.URLError("Connection refused"))
-    @patch("psycopg2.connect")
-    async def test_verify_face_mock_fallback_success(self, mock_db_connect, mock_post):
-        # Mock database connection and query to return success
-        mock_conn = mock_db_connect.return_value
-        mock_cur = mock_conn.cursor.return_value
-        mock_cur.fetchone.return_value = (1,)
-
-        # Execute with a sufficiently long image base64 (e.g. 100+ chars) to not trigger the short image check
-        long_image = "a" * 120
-        with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080", "MOCK_ZEPIRIS": "true"}):
+    async def test_enroll_face_connection_error(self, mock_post):
+        with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080"}):
             zepiris_client.ZEPIRIS_URL = "http://mock-zepiris:8080"
-            result = await zepiris_client.verify_face("test-worker-001", long_image, "123")
-
-        self.assertTrue(result["verified"])
-        self.assertEqual(result["confidence"], 0.95)
+            with self.assertRaises(RuntimeError) as context:
+                await zepiris_client.enroll_face("test-worker-001", "iVBORw0KGgo=", "123")
+            self.assertIn("Biometric enrollment failed to communicate with ZepIris server", str(context.exception))
 
     @patch("backend.services.zepiris_client._sync_multipart_post", side_effect=urllib.error.URLError("Connection refused"))
-    @patch("psycopg2.connect")
-    async def test_verify_face_mock_fallback_fail_keyword(self, mock_db_connect, mock_post):
-        # Mock connection and cursor context managers
-        mock_conn = mock_db_connect.return_value.__enter__.return_value
-        mock_cur = mock_conn.cursor.return_value.__enter__.return_value
-        mock_cur.fetchone.return_value = (1,)
-
-        # Execute with "fail" in worker_id
-        with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080", "MOCK_ZEPIRIS": "true"}):
+    async def test_verify_face_connection_error(self, mock_post):
+        with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080"}):
             zepiris_client.ZEPIRIS_URL = "http://mock-zepiris:8080"
-            result = await zepiris_client.verify_face("test-worker-fail", "a" * 120, "123")
-
-        self.assertFalse(result["verified"])
-        self.assertEqual(result["confidence"], 0.15)
-
-    @patch("backend.services.zepiris_client._sync_multipart_post", side_effect=urllib.error.URLError("Connection refused"))
-    @patch("psycopg2.connect")
-    async def test_verify_face_mock_fallback_success_cleaned_fail(self, mock_db_connect, mock_post):
-        # Mock connection and cursor context managers
-        mock_conn = mock_db_connect.return_value.__enter__.return_value
-        mock_cur = mock_conn.cursor.return_value.__enter__.return_value
-        mock_cur.fetchone.return_value = (1,)
-
-        long_image = "a" * 120
-        with patch.dict(os.environ, {"ZEPIRIS_URL": "http://mock-zepiris:8080", "MOCK_ZEPIRIS": "true"}):
-            zepiris_client.ZEPIRIS_URL = "http://mock-zepiris:8080"
-            result = await zepiris_client.verify_face("test-worker-001-fail", long_image, "123")
-
-        # The query should be for "test-worker-001", but the result should be False
-        self.assertFalse(result["verified"])
-        self.assertEqual(result["confidence"], 0.15)
-        # Ensure database query checked the clean ID "test-worker-001"
-        mock_cur.execute.assert_called_with(
-            "SELECT 1 FROM workers WHERE worker_id = %s AND org_id = %s;",
-            ("test-worker-001", 123)
-        )
+            with self.assertRaises(RuntimeError) as context:
+                await zepiris_client.verify_face("test-worker-001", "iVBORw0KGgo=", "123")
+            self.assertIn("Biometric verification failed to communicate with ZepIris server", str(context.exception))
 
 if __name__ == "__main__":
     unittest.main()
