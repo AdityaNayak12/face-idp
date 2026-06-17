@@ -1,47 +1,52 @@
-# backend/db.py: Database connection pooling and context management.
+# backend/db.py: Asynchronous database connection pooling using asyncpg.
 
 import os
-from contextlib import contextmanager
-from psycopg2.pool import ThreadedConnectionPool
+import asyncpg
+from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-_pool = None
+_async_pool = None
 
-def init_pool(minconn=1, maxconn=20):
-    """Initializes the global connection pool."""
-    global _pool
+async def init_async_pool(min_size=5, max_size=20):
+    """Initializes the global asyncpg connection pool."""
+    global _async_pool
     if not DATABASE_URL:
-        print("DATABASE_URL is not set. Database pool will not be initialized.")
+        print("DATABASE_URL is not set. Async database pool will not be initialized.")
         return
-    if _pool is None:
+    if _async_pool is None:
         try:
-            _pool = ThreadedConnectionPool(minconn, maxconn, DATABASE_URL)
-            print("Database connection pool initialized.")
+            _async_pool = await asyncpg.create_pool(
+                dsn=DATABASE_URL,
+                min_size=min_size,
+                max_size=max_size
+            )
+            print("Async database connection pool initialized.")
         except Exception as e:
-            print(f"Failed to initialize database connection pool: {e}")
+            print(f"Failed to initialize async database connection pool: {e}")
             raise e
 
-def close_pool():
-    """Closes the global connection pool."""
-    global _pool
-    if _pool is not None:
+async def close_async_pool():
+    """Closes the global asyncpg connection pool."""
+    global _async_pool
+    if _async_pool is not None:
         try:
-            _pool.closeall()
-            print("Database connection pool closed.")
+            await _async_pool.close()
+            print("Async database connection pool closed.")
         except Exception as e:
-            print(f"Error closing database connection pool: {e}")
-        _pool = None
+            print(f"Error closing async database connection pool: {e}")
+        _async_pool = None
 
-@contextmanager
-def get_db_connection():
-    """Context manager to lease a connection from the pool, wrap it in a transaction, and return it."""
-    global _pool
-    if _pool is None:
-        raise RuntimeError("Database connection pool is not initialized. Call init_pool() first.")
+@asynccontextmanager
+async def get_async_db_connection():
+    """Context manager to lease an async connection from the pool and run it within a transaction."""
+    global _async_pool
+    if _async_pool is None:
+        raise RuntimeError("Async database connection pool is not initialized. Call init_async_pool() first.")
     
-    conn = _pool.getconn()
-    try:
-        with conn:  # Automatically commits on success, rolls back on exception
+    async with _async_pool.acquire() as conn:
+        # Run queries in a transaction block
+        async with conn.transaction():
             yield conn
-    finally:
-        _pool.putconn(conn)
