@@ -3,10 +3,8 @@
 import os
 import base64
 import json
-import uuid
 import asyncio
-import urllib.request
-import urllib.error
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,73 +12,83 @@ load_dotenv()
 ZEPIRIS_URL = os.getenv("ZEPIRIS_URL")
 ZEPIRIS_THRESHOLD = float(os.getenv("ZEPIRIS_THRESHOLD", "0.4"))
 
-def _sync_multipart_post(url: str, fields: dict, files: dict) -> str:
-    """Helper to send a multipart/form-data POST request synchronously using urllib."""
-    boundary = uuid.uuid4().hex
-    parts = []
-    
-    # Form fields
-    for name, value in fields.items():
-        parts.append(f"--{boundary}".encode('utf-8'))
-        parts.append(f'Content-Disposition: form-data; name="{name}"'.encode('utf-8'))
-        parts.append(b'')
-        parts.append(str(value).encode('utf-8'))
-        
-    # Files
-    for name, (filename, file_bytes, content_type) in files.items():
-        parts.append(f"--{boundary}".encode('utf-8'))
-        parts.append(f'Content-Disposition: form-data; name="{name}"; filename="{filename}"'.encode('utf-8'))
-        parts.append(f'Content-Type: {content_type}'.encode('utf-8'))
-        parts.append(b'')
-        parts.append(file_bytes)
-        
-    parts.append(f"--{boundary}--".encode('utf-8'))
-    parts.append(b'')
-    
-    body = b'\r\n'.join(parts)
-    
-    req = urllib.request.Request(url, data=body, method='POST')
-    req.add_header('Content-Type', f'multipart/form-data; boundary={boundary}')
-    req.add_header('Content-Length', str(len(body)))
-    
-    # Use urllib to send request with a reasonable timeout
-    with urllib.request.urlopen(req, timeout=10) as response:
-        return response.read().decode('utf-8')
+_client = None
+
+def get_httpx_client() -> httpx.AsyncClient:
+    """Gets or initializes the global AsyncClient for connection pooling."""
+    global _client
+    if _client is None:
+        # Keepalive limits: 10 connections keepalive, max 50 concurrent connections
+        limits = httpx.Limits(max_keepalive_connections=10, max_connections=50)
+        _client = httpx.AsyncClient(limits=limits, timeout=10.0)
+    return _client
+
+async def close_httpx_client():
+    """Closes the global AsyncClient."""
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
+
+async def _post_with_retries(client: httpx.AsyncClient, url: str, data: dict, files: dict, max_retries: int = 3) -> httpx.Response:
+    """Helper to send POST request with retries and exponential backoff for transient failures."""
+    attempt = 0
+    backoff = 0.5  # initial sleep duration in seconds
+    while True:
+        try:
+            response = await client.post(url, data=data, files=files)
+            if response.status_code in (502, 503, 504):
+                response.raise_for_status()
+            return response
+        except (httpx.RequestError, httpx.HTTPStatusError) as e:
+            attempt += 1
+            if attempt >= max_retries:
+                raise e
+            await asyncio.sleep(backoff)
+            backoff *= 2
 
 async def enroll_face(worker_id: str, image_base64: str, tenant: str) -> dict:
-    """Enrolls a worker's face image in the ZepIris system using multipart upload."""
+    """Enrolls a worker's face image in the ZepIris system asynchronously."""
     if not ZEPIRIS_URL:
         raise ValueError("ZEPIRIS_URL is not set in the environment variables.")
     
-    # Decode base64 image to raw bytes
-    image_bytes = base64.b64decode(image_base64)
-    
+    # Decode base64 image to raw bytes, with error handling
     try:
-        response_str = await asyncio.to_thread(
-            _sync_multipart_post,
+        image_bytes = base64.b64decode(image_base64)
+    except Exception as e:
+        raise ValueError(f"Invalid Base64 image payload: {str(e)}")
+
+    client = get_httpx_client()
+    try:
+        response = await _post_with_retries(
+            client,
             f"{ZEPIRIS_URL}/v1/faces/insert",
-            {"id": worker_id, "tenant": tenant},
-            {"file": ("face.jpg", image_bytes, "image/jpeg")}
+            data={"id": worker_id, "tenant": tenant},
+            files={"file": ("face.jpg", image_bytes, "image/jpeg")}
         )
-        return json.loads(response_str)
-    except (urllib.error.HTTPError, urllib.error.URLError, ConnectionError, TimeoutError, OSError) as e:
-        raise RuntimeError(f"Biometric enrollment failed to communicate with ZepIris server at {ZEPIRIS_URL}. Error: {str(e)}") from e
+        return response.json()
+    except Exception as e:
+        raise RuntimeError(f"Biometric enrollment failed to communicate with ZepIris server. Error: {str(e)}") from e
 
 async def verify_face(worker_id: str, image_base64: str, tenant: str) -> dict:
-    """Verifies a worker's face image against ZepIris search matches."""
+    """Verifies a worker's face image against ZepIris search matches asynchronously."""
     if not ZEPIRIS_URL:
         raise ValueError("ZEPIRIS_URL is not set in the environment variables.")
         
-    image_bytes = base64.b64decode(image_base64)
-    
     try:
-        response_str = await asyncio.to_thread(
-            _sync_multipart_post,
+        image_bytes = base64.b64decode(image_base64)
+    except Exception as e:
+        raise ValueError(f"Invalid Base64 image payload: {str(e)}")
+
+    client = get_httpx_client()
+    try:
+        response = await _post_with_retries(
+            client,
             f"{ZEPIRIS_URL}/v1/faces/search",
-            {"tenant": tenant},
-            {"file": ("face.jpg", image_bytes, "image/jpeg")}
+            data={"tenant": tenant},
+            files={"file": ("face.jpg", image_bytes, "image/jpeg")}
         )
-        result = json.loads(response_str)
+        result = response.json()
         
         matches = result.get("matches", [])
         verified = False
@@ -98,5 +106,5 @@ async def verify_face(worker_id: str, image_base64: str, tenant: str) -> dict:
             "verified": verified,
             "confidence": confidence
         }
-    except (urllib.error.HTTPError, urllib.error.URLError, ConnectionError, TimeoutError, OSError) as e:
-        raise RuntimeError(f"Biometric verification failed to communicate with ZepIris server at {ZEPIRIS_URL}. Error: {str(e)}") from e
+    except Exception as e:
+        raise RuntimeError(f"Biometric verification failed to communicate with ZepIris server. Error: {str(e)}") from e
