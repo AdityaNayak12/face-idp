@@ -1,17 +1,26 @@
-# backend/routes/logs.py: API routes for retrieving audit and verification logs.
-
 import os
-from ..db import get_db_connection
-from fastapi import APIRouter, HTTPException, status, Query
+from ..db import get_async_db_connection
+from fastapi import APIRouter, HTTPException, status, Query, Header
 from ..services import auth
 
 router = APIRouter()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 @router.get("/logs")
-async def get_logs(api_key: str = Query(..., description="API key of the organization")):
-    # Validate the API key
-    org = auth.validate_api_key(api_key)
+async def get_logs(
+    x_api_key: str | None = Header(None, alias="X-API-Key", description="API key of the organization"),
+    api_key: str | None = Query(None, description="API key of the organization (Deprecated, use X-API-Key header)")
+):
+    # Determine the API key to use (header prioritized)
+    key = x_api_key or api_key
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API key is missing. Use 'X-API-Key' header."
+        )
+
+    # Validate the API key asynchronously
+    org = await auth.validate_api_key(key)
     if not org:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -25,32 +34,30 @@ async def get_logs(api_key: str = Query(..., description="API key of the organiz
         )
 
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT id, org_id, worker_id, confidence, verified, timestamp 
-                    FROM verification_logs 
-                    WHERE org_id = %s 
-                    ORDER BY timestamp DESC 
-                    LIMIT 100;
-                    """,
-                    (org.id,)
-                )
-                rows = cur.fetchall()
-                
-                logs = [
-                    {
-                        "id": row[0],
-                        "org_id": row[1],
-                        "worker_id": row[2],
-                        "confidence": row[3],
-                        "verified": row[4],
-                        "timestamp": row[5].isoformat() if row[5] else None
-                    }
-                    for row in rows
-                ]
-                return logs
+        async with get_async_db_connection() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, org_id, worker_id, confidence, verified, timestamp 
+                FROM verification_logs 
+                WHERE org_id = $1 
+                ORDER BY timestamp DESC 
+                LIMIT 100;
+                """,
+                org.id
+            )
+            
+            logs = [
+                {
+                    "id": row['id'],
+                    "org_id": row['org_id'],
+                    "worker_id": row['worker_id'],
+                    "confidence": row['confidence'],
+                    "verified": row['verified'],
+                    "timestamp": row['timestamp'].isoformat() if row['timestamp'] else None
+                }
+                for row in rows
+            ]
+            return logs
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
