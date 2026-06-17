@@ -49,8 +49,11 @@ export async function verifyWorker(apiKey, workerId, imageBase64) {
 }
 
 export async function fetchLogs(apiKey) {
-  const response = await fetch(`${BASE_URL}/logs?api_key=${encodeURIComponent(apiKey)}`, {
-    method: 'GET'
+  const response = await fetch(`${BASE_URL}/logs`, {
+    method: 'GET',
+    headers: {
+      'X-API-Key': apiKey
+    }
   });
   return handleResponse(response);
 }
